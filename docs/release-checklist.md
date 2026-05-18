@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this before publishing the public web companion.
+Release checks for the public web companion.
 
 ## Browser Support
 
@@ -22,7 +22,7 @@ Use this before publishing the public web companion.
 
 ## Security
 
-- No backend required.
+- No backend service in the transfer path.
 - No analytics or third-party runtime scripts.
 - Trusted-host secrets stored only on the local browser origin.
 - Forget saved reader clears local trusted-host records.

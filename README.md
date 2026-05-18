@@ -1,21 +1,19 @@
 # BLE Xteink
 
-Standalone web and mobile companion for Xteink/Marginalia/CrossPoint BLE transfer.
+BLE transfer companion for Xteink readers running compatible firmware.
 
-The first public target is a static HTTPS website, suitable for deployment at a domain like `ble-xteink.vercel.app`.
-The React Native app is present as a stub for future native BLE support.
+The project provides a browser client for local BLE file transfer and a React Native workspace for native client work.
+The shared protocol package keeps transfer framing, validation, and authentication helpers consistent across clients.
 
 ## Workspace
 
-- `apps/web`: Next.js Web Bluetooth companion.
-- `apps/mobile`: React Native stub.
+- `apps/web`: browser companion built with Next.js.
+- `apps/mobile`: React Native app workspace.
 - `packages/ble-protocol`: shared BLE transfer protocol helpers.
 - `packages/ui`: shared shadcn UI components.
-- `docs`: protocol, compatibility, and release planning.
+- `docs`: protocol, compatibility, and release documents.
 
 ## Commands
-
-Use Bun:
 
 ```sh
 bun install
@@ -23,10 +21,9 @@ bun run lint
 bun run typecheck
 ```
 
-Do not start dev servers unless you are actively testing a UI.
+## Documentation
 
-## Current Phase
-
-This repo is in prototype setup. The next real milestone is a Web Bluetooth lab that validates connection, status
-notifications, authentication, upload chunk sizes, and download frame ordering on real hardware before building polished
-UI.
+- [System design](./docs/system-design.md)
+- [Protocol contract](./docs/protocol-contract.md)
+- [Compatibility matrix](./docs/compatibility-matrix.md)
+- [Release checklist](./docs/release-checklist.md)

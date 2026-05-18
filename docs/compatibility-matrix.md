@@ -2,7 +2,7 @@
 
 This file tracks real Web Bluetooth behavior for the BLE transfer companion.
 
-Do not claim support for a platform until it has at least one successful hardware test.
+Support is recorded after hardware testing.
 
 | Platform | Browser | Connect | Status Notify | Code Auth | Write Without Response | Data-Out Ordering | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -10,7 +10,7 @@ Do not claim support for a platform until it has at least one successful hardwar
 | Windows | Chrome or Edge | Untested | Untested | Untested | Untested | Untested | Needed before public recommendation |
 | Android | Chrome | Untested | Untested | Untested | Untested | Untested | Important phone target |
 | Linux | Chromium | Untested | Untested | Untested | Untested | Untested | Best effort; may require browser flags |
-| iOS/iPadOS | Safari/Chrome | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported | Web Bluetooth is not a v1 target |
+| iOS/iPadOS | Safari/Chrome | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported | Web Bluetooth is unavailable |
 
 ## Chunk-Size Sweep
 

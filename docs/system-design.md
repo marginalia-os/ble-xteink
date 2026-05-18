@@ -2,42 +2,30 @@
 
 ## Goal
 
-Build a standalone companion for Xteink/Marginalia/CrossPoint BLE transfer.
+BLE Xteink provides web and mobile clients for the Xteink BLE transfer protocol.
 
-The first product is a public HTTPS website, suitable for a Vercel deployment such as `ble-xteink.vercel.app`. It should
-work for users who have firmware with the BLE transfer protocol and do not want to use a Python CLI.
-
-The repo is a monorepo from the start so the web app, future React Native app, shared UI, and protocol client stay
-aligned.
+The web client connects directly from a supported browser over Web Bluetooth. The mobile workspace is for native BLE
+clients that use the same protocol utilities.
 
 ## Scope
 
-Initial scope:
+The companion covers approved transfer operations exposed by compatible firmware:
 
 - connect to the reader over Web Bluetooth;
-- authenticate with visible code;
-- support trusted-host authentication once the browser flow is proven;
+- authenticate with a visible code or a saved trusted-host record;
 - upload approved file kinds;
 - download approved diagnostics;
-- provide lab pages for compatibility testing;
-- keep a shared protocol package for web and mobile clients.
+- show transfer progress and errors;
+- keep protocol utilities reusable across web and mobile clients.
 
-Out of scope for the first browser release:
-
-- arbitrary SD-card browsing;
-- arbitrary file reads or writes;
-- firmware OTA;
-- L2CAP CoC;
-- BLE-to-Wi-Fi handoff;
-- iOS web support claim;
-- cloud accounts or synced trusted-host secrets.
+The companion does not expose raw SD-card browsing or arbitrary device paths.
 
 ## Monorepo Layout
 
 ```text
 apps/
   web/       Next.js Web Bluetooth companion.
-  mobile/    React Native native BLE companion stub.
+  mobile/    React Native app workspace.
 packages/
   ble-protocol/ Shared protocol constants and helpers.
   ui/           Shared shadcn UI components.
@@ -50,8 +38,8 @@ docs/
 
 ## Architecture
 
-The production website should be static. It does not need server functions to talk to BLE because Web Bluetooth runs in
-the user's browser.
+The website can be hosted as static assets. Web Bluetooth runs in the user's browser, so BLE transfers do not require a
+backend service.
 
 The web app owns:
 
@@ -71,31 +59,24 @@ The shared protocol package owns:
 - trusted-host HMAC helper inputs;
 - error normalization.
 
-The mobile app will eventually own:
+The mobile app workspace owns native-client concerns:
 
 - native BLE permissions;
 - native BLE scanning/connection;
 - secure local trusted-host storage where platform APIs allow it;
 - the same high-level transfer protocol through `packages/ble-protocol`.
 
-## Why Web First
-
-Web is the easiest way to distribute the companion publicly. Users can open one HTTPS page and connect from a supported
-Chromium browser. A native iOS app can come later, but it is a separate project because iOS browsers do not expose Web
-Bluetooth.
-
 ## Browser Constraints
 
-The web app should assume:
+The web app relies on Web Bluetooth behavior available in Chromium-family browsers:
 
-- secure context is required;
-- user gesture is required for `requestDevice`;
-- Chromium-family browsers are the practical target;
-- Safari/iOS are unsupported for web;
-- write-without-response chunk limits must be tested on real browsers;
-- built-in browser SHA-256 is not streaming.
+- HTTPS is required;
+- `requestDevice` requires a user gesture;
+- Safari and iOS browsers do not provide Web Bluetooth support;
+- write-without-response limits vary by browser and adapter;
+- browser SHA-256 APIs are not streaming.
 
-## Implementation Order
+## Roadmap
 
 1. Protocol contract.
 2. Web Bluetooth lab routes.
@@ -103,6 +84,4 @@ The web app should assume:
 4. Minimal user-facing transfer UI.
 5. Trusted-host storage.
 6. Diagnostic downloads.
-7. CrossPoint-friendly docs and upstream framing.
-
-Do not start with polished UI. The lab answers the browser behavior questions that decide the correct transfer defaults.
+7. Public release documentation.

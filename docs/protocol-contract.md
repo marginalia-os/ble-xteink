@@ -2,8 +2,7 @@
 
 This is the browser-facing contract for the Xteink/Marginalia/CrossPoint BLE transfer service.
 
-The first implementation should match existing firmware behavior. If firmware adds explicit capability fields later,
-this document should be updated before client UI depends on them.
+This document tracks current firmware behavior and the client-visible compatibility contract.
 
 ## Service
 
@@ -86,7 +85,7 @@ Allowed `kind` values depend on firmware:
 - `bmp`
 - `firmware`
 
-Browser v1 should not expose `firmware` until Web Bluetooth transfer reliability is proven.
+Browser clients keep `firmware` hidden until Web Bluetooth transfer reliability is measured on supported platforms.
 
 ## Upload Frame
 
@@ -228,9 +227,9 @@ Known states:
 - `restarting`
 - `error`
 
-## Capability Fields To Consider
+## Candidate Capability Fields
 
-Future firmware should consider adding:
+Compatible firmware can expose:
 
 - `protocol_version`
 - `firmware_name`
