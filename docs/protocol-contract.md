@@ -53,7 +53,7 @@ Trusted-host `hello`:
 }
 ```
 
-Pairing request fields can be included with code auth:
+Legacy pairing request fields can be included with code auth for upload flows:
 
 ```json
 {
@@ -62,6 +62,21 @@ Pairing request fields can be included with code auth:
   "pair_secret": "64-lowercase-hex-characters"
 }
 ```
+
+Browser diagnostic flows should request pairing explicitly after code auth and
+before downloads:
+
+```json
+{
+  "op": "save_host",
+  "host_id": "host-id",
+  "host_name": "Browser",
+  "secret": "64-lowercase-hex-characters"
+}
+```
+
+The browser waits for `paired: true`, `pairing: "skipped"`, or `error` before
+starting diagnostics.
 
 ## Upload Command
 

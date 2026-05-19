@@ -6,10 +6,11 @@ export function App() {
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.panel}>
-        <Text style={styles.eyebrow}>Prototype</Text>
+        <Text style={styles.eyebrow}>BLE companion</Text>
         <Text style={styles.title}>BLE Xteink</Text>
         <Text style={styles.body}>
-          Native BLE support will use the shared protocol package after the web lab proves the transfer flow.
+          Native BLE support uses the same transfer protocol package as the web
+          client.
         </Text>
         <Text style={styles.mono}>{BLE_TRANSFER_SERVICE_UUID}</Text>
       </View>
