@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import puppeteer, {
   type Browser,
   type Page,
@@ -55,7 +55,8 @@ interface DownloadTracker {
 const url = optionValue("--url") ?? "http://localhost:3000/transfer"
 const deviceName = optionValue("--device") ?? "Marginalia Transfer"
 const pairCode = optionValue("--code")
-const packageId = optionValue("--package-id")
+const packageIdOption = optionValue("--package-id")
+const packageFile = optionValue("--package-file")
 const mode = modeOption()
 const chromePath =
   optionValue("--chrome") ??
@@ -74,11 +75,15 @@ const runContext: RunContext = {
   authPath: "unauthorized",
   browserGrant: { supported: false, devices: [] },
 }
+let diagnosticsPackageId = packageIdOption
 
 async function main() {
   if (hasFlag("--help") || hasFlag("-h")) {
     printUsage()
     return
+  }
+  if (packageFile && !existsSync(packageFile)) {
+    throw new Error(`Package file not found: ${packageFile}`)
   }
 
   const browser = await openBrowser()
@@ -377,22 +382,52 @@ async function runTransferCheck(page: Page) {
 }
 
 async function runDiagnostics(page: Page) {
-  await clickButton(page, "Crash report")
-  await waitForResultRow(page, "download", "crash_report", timeoutMs)
+  if (packageFile) {
+    await uploadPackageFile(page, packageFile)
+  }
 
-  if (!packageId) {
+  await clickButton(page, "Crash report")
+  await waitForResultRow(page, "download", "crash_report", timeoutMs, "sent")
+
+  if (!diagnosticsPackageId) {
     await expectButtonDisabled(page, "Package state")
     return
   }
 
-  await page.locator("#package-id").fill(packageId)
+  await page.locator("#package-id").fill(diagnosticsPackageId)
   await expectButtonEnabled(page, "Package state")
   await clickButton(page, "Package state")
-  await waitForResultRow(page, "download", "package_state", timeoutMs)
+  await waitForResultRow(page, "download", "package_state", timeoutMs, "sent")
+}
+
+async function uploadPackageFile(page: Page, path: string) {
+  const absolutePath = resolve(path)
+  log(`Uploading package file: ${absolutePath}`)
+  const input = await page.$("#upload-file")
+  if (!input) throw new Error("Upload file input was not found.")
+  await input.uploadFile(absolutePath)
+  await page.waitForFunction(
+    () =>
+      Boolean(
+        (document.querySelector("#package-id") as HTMLInputElement).value
+      ),
+    { timeout: timeoutMs }
+  )
+  diagnosticsPackageId = await page.$eval(
+    "#package-id",
+    (input) => (input as HTMLInputElement).value
+  )
+  log(`Package id from selected archive: ${diagnosticsPackageId}`)
+  await expectButtonEnabled(page, "Upload")
+  await clickButton(page, "Upload")
+  await waitForResultRow(page, "upload", "package", timeoutMs, [
+    "saved",
+    "installed",
+  ])
 }
 
 async function waitForDiagnosticsDownloads(downloads: DownloadTracker) {
-  const expectedCount = packageId ? 2 : 1
+  const expectedCount = diagnosticsPackageId ? 2 : 1
   await downloads.waitForCompleted(expectedCount, timeoutMs)
   const completed = Array.from(downloads.records.values()).filter(
     (record) => record.state === "completed"
@@ -433,14 +468,18 @@ async function readDiagnosticsResult(page: Page) {
   const packageState = result.rows.find(
     (row) => row.action === "download" && row.kind === "package_state"
   )
-  const failures = result.rows.filter((row) => row.state !== "sent")
+  const failures = result.rows.filter((row) =>
+    row.action === "upload"
+      ? row.state !== "saved" && row.state !== "installed"
+      : row.state !== "sent"
+  )
 
   if (!crashReport || failures.length > 0) {
     throw new Error(`Diagnostics check failed: ${JSON.stringify(result.rows)}`)
   }
-  if (packageId && !packageState) {
+  if (diagnosticsPackageId && !packageState) {
     throw new Error(
-      `Package-state diagnostics did not produce a result for ${packageId}.`
+      `Package-state diagnostics did not produce a result for ${diagnosticsPackageId}.`
     )
   }
 
@@ -450,7 +489,9 @@ async function readDiagnosticsResult(page: Page) {
     meta: reportMeta(),
     diagnostics: {
       crashReport: "passed",
-      packageState: packageId ? "passed" : "skipped: no package id supplied",
+      packageState: diagnosticsPackageId
+        ? "passed"
+        : "skipped: no package id supplied",
     },
     ...result,
   }
@@ -523,7 +564,8 @@ function reportMeta() {
     downloadDir: mode === "diagnostics" ? downloadDir : null,
     downloads: runContext.downloads ?? [],
     mode,
-    packageId: packageId ?? null,
+    packageFile: packageFile ? resolve(packageFile) : null,
+    packageId: diagnosticsPackageId ?? null,
     profileDir: cdpEndpoint ? null : profileDir,
     protocol,
     reportEvents: verboseEvents ? "all" : eventLimit,
@@ -550,6 +592,7 @@ async function clickButton(page: Page, name: string) {
     "Package state": "#package-state-button",
     Save: "#save-code-button",
     "Transfer check": "#transfer-check-button",
+    Upload: "#upload-button",
   }
   const selector = selectors[name]
   if (selector) {
@@ -626,19 +669,26 @@ async function waitForResultRow(
   page: Page,
   action: string,
   kind: string,
-  timeout: number
+  timeout: number,
+  states?: string | string[]
 ) {
+  const expectedStates = Array.isArray(states) ? states : states ? [states] : []
   await page.waitForFunction(
-    (expectedAction, expectedKind) =>
+    (expectedAction, expectedKind, expectedStates) =>
       Array.from(document.querySelectorAll("tbody tr")).some((row) => {
         const cells = Array.from(row.querySelectorAll("td")).map(
           (cell) => cell.textContent?.trim() ?? ""
         )
-        return cells[0] === expectedAction && cells[1] === expectedKind
+        return (
+          cells[0] === expectedAction &&
+          cells[1] === expectedKind &&
+          (expectedStates.length === 0 || expectedStates.includes(cells[5]))
+        )
       }),
     { timeout },
     action,
-    kind
+    kind,
+    expectedStates
   )
 }
 
@@ -713,6 +763,8 @@ Options:
   --device <name>    Device name substring. Default: Marginalia Transfer
   --mode <name>      transfer-check or diagnostics. Default: transfer-check.
   --package-id <id>  Optional package id for diagnostics package-state download.
+  --package-file <path>
+                    Optional .mpkg.zip to upload before package-state diagnostics.
   --code <digits>    Six-digit first-time pairing code.
   --chrome <path>    Chrome executable path. Defaults to macOS Google Chrome.
   --cdp <url>        Attach to an existing Chrome CDP endpoint instead of launching.

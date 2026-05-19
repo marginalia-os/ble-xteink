@@ -1011,6 +1011,7 @@ export function TransferClient() {
 
         <div className="flex flex-wrap gap-2">
           <Button
+            id="upload-button"
             onClick={uploadSelectedFile}
             disabled={
               !isConnected ||
