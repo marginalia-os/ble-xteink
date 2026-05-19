@@ -88,13 +88,25 @@ async function main() {
     writeReport(result)
     console.log(JSON.stringify(result, null, 2))
 
-    if (!keepOpen) await browser.close()
+    if (!keepOpen) await closeBrowser(browser)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     await writeFailureReport(page, detail).catch(() => undefined)
-    if (!keepOpen) await browser.close().catch(() => undefined)
+    if (!keepOpen) await closeBrowser(browser).catch(() => undefined)
     console.error(detail)
     process.exitCode = 1
+  }
+}
+
+async function closeBrowser(browser: Browser) {
+  const close = browser.close()
+  const timeout = new Promise<"timeout">((resolve) =>
+    setTimeout(() => resolve("timeout"), 3_000)
+  )
+  const result = await Promise.race([close, timeout])
+  if (result === "timeout") {
+    log("Chrome did not close within 3000ms; terminating browser process")
+    browser.process()?.kill()
   }
 }
 

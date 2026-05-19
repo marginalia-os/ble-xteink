@@ -355,7 +355,10 @@ export function TransferClient() {
       return
     }
 
-    const crashReportResult = await runDownload({ kind: "crash_report" })
+    const crashReportResult = await runDownload({
+      kind: "crash_report",
+      saveFile: false,
+    })
     if (crashReportResult) collected.push(crashReportResult)
 
     await copyAndPostTransferCheck(collected)
@@ -520,7 +523,7 @@ export function TransferClient() {
       )
       return
     }
-    await runDownload({ kind: "crash_report" })
+    await runDownload({ kind: "crash_report", saveFile: true })
   }
 
   async function downloadPackageState() {
@@ -542,6 +545,7 @@ export function TransferClient() {
     const result = await runDownload({
       kind: "package_state",
       packageId: repaired.safeId,
+      saveFile: true,
     })
     if (!result?.error) {
       window.localStorage.setItem(LAST_PACKAGE_ID_STORAGE_KEY, repaired.safeId)
@@ -551,9 +555,11 @@ export function TransferClient() {
   async function runDownload({
     kind,
     packageId,
+    saveFile = false,
   }: {
     kind: DownloadKind
     packageId?: string
+    saveFile?: boolean
   }): Promise<TransferResult | null> {
     const client = clientRef.current
     if (!client) return null
@@ -614,6 +620,13 @@ export function TransferClient() {
         )
       }
 
+      const bytes = concatChunks(active.chunks, active.receivedBytes)
+      const downloadName = finalStatus.name ?? fallbackDownloadName(kind)
+      if (saveFile) {
+        saveBytes(downloadName, bytes, contentTypeForDownload(kind))
+        setMessage(`Downloaded ${downloadName}.`)
+      }
+
       const durationMs = nowMs() - startedAt
       const result: TransferResult = {
         action: "download",
@@ -621,7 +634,7 @@ export function TransferClient() {
         durationMs,
         finalState: finalStatus.state,
         kind,
-        name: finalStatus.name,
+        name: downloadName,
         rate: Math.round((active.receivedBytes / durationMs) * 1000),
       }
       addResult(result)
@@ -1296,6 +1309,47 @@ function createBmpPayload(width: number, height: number): Uint8Array {
   }
 
   return bytes
+}
+
+function concatChunks(chunks: Uint8Array[], byteLength: number): Uint8Array {
+  const out = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+function saveBytes(name: string, bytes: Uint8Array, type: string) {
+  const blob = new Blob([toArrayBuffer(bytes)], { type })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = name
+  anchor.rel = "noopener"
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function fallbackDownloadName(kind: DownloadKind): string {
+  switch (kind) {
+    case "crash_report":
+      return "crash_report.txt"
+    case "package_state":
+      return "package_state.json"
+  }
+}
+
+function contentTypeForDownload(kind: DownloadKind): string {
+  switch (kind) {
+    case "crash_report":
+      return "text/plain;charset=utf-8"
+    case "package_state":
+      return "application/json;charset=utf-8"
+  }
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
