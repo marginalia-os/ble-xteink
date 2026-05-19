@@ -31,6 +31,7 @@ interface RunContext {
     devices: string[]
   }
   chromeVersion?: string
+  downloads?: DownloadRecord[]
   selectedDevice?: {
     id: string
     name: string
@@ -392,6 +393,7 @@ async function waitForDiagnosticsDownloads(downloads: DownloadTracker) {
   const completed = Array.from(downloads.records.values()).filter(
     (record) => record.state === "completed"
   )
+  runContext.downloads = completed
   log(
     `Completed Chrome downloads: ${completed
       .map((record) => record.suggestedFilename)
@@ -515,6 +517,7 @@ function reportMeta() {
     cdpEndpoint: cdpEndpoint ?? null,
     deviceName,
     downloadDir: mode === "diagnostics" ? downloadDir : null,
+    downloads: runContext.downloads ?? [],
     mode,
     packageId: packageId ?? null,
     profileDir: cdpEndpoint ? null : profileDir,
