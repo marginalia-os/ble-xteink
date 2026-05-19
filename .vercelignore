@@ -1,0 +1,17 @@
+node_modules
+.turbo
+.next
+out
+build
+dist
+coverage
+.lab-reports
+.playwright-mcp
+
+apps/**/node_modules
+apps/**/.turbo
+apps/**/.next
+apps/**/.lab-reports
+
+packages/**/node_modules
+packages/**/.turbo
