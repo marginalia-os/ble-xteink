@@ -23,6 +23,7 @@ import {
   rememberTrustedHost,
   type PendingTrustedHost,
 } from "@/lib/ble/trusted-hosts"
+import { extractPackageIdFromArchive } from "@/lib/package-archive"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -272,13 +273,14 @@ export function TransferClient() {
     }
   }
 
-  function chooseUploadFile(file: File | null) {
+  async function chooseUploadFile(file: File | null) {
     setSelectedFile(file)
     setError(null)
     setMessage(null)
     if (!file) return
 
     const inferredKind = inferUploadKindFromName(file.name)
+    const effectiveKind = inferredKind ?? uploadKind
     if (
       inferredKind &&
       inferredKind !== "firmware" &&
@@ -289,6 +291,23 @@ export function TransferClient() {
         `Upload kind changed to ${uploadKindLabel(inferredKind)} because the file ends in ${uploadSuffixForKind(inferredKind)}.`
       )
     }
+
+    if (effectiveKind !== "package") return
+
+    const archiveId = extractPackageIdFromArchive(
+      new Uint8Array(await file.arrayBuffer())
+    )
+    if (!archiveId.ok) {
+      setMessage(archiveId.message)
+      return
+    }
+
+    setPackageId(archiveId.packageId)
+    window.localStorage.setItem(
+      LAST_PACKAGE_ID_STORAGE_KEY,
+      archiveId.packageId
+    )
+    setMessage(archiveId.message)
   }
 
   async function tryTrustedAuth(client: BleTransferBrowserClient) {
@@ -927,7 +946,7 @@ export function TransferClient() {
                   selectedFile
                 )}
                 onChange={(event) =>
-                  chooseUploadFile(event.currentTarget.files?.[0] ?? null)
+                  void chooseUploadFile(event.currentTarget.files?.[0] ?? null)
                 }
               />
               {selectedUploadNameRepair?.safeName ? (
