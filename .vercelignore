@@ -15,3 +15,8 @@ apps/**/.lab-reports
 
 packages/**/node_modules
 packages/**/.turbo
+packages/**/.next
+packages/**/out
+packages/**/build
+packages/**/dist
+packages/**/coverage
