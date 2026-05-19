@@ -37,6 +37,20 @@ interface RunContext {
   }
 }
 
+interface DownloadRecord {
+  guid: string
+  receivedBytes: number
+  state: string
+  suggestedFilename: string
+  totalBytes: number
+}
+
+interface DownloadTracker {
+  records: Map<string, DownloadRecord>
+  supported: boolean
+  waitForCompleted(expectedCount: number, timeout: number): Promise<void>
+}
+
 const url = optionValue("--url") ?? "http://localhost:3000/transfer"
 const deviceName = optionValue("--device") ?? "Marginalia Transfer"
 const pairCode = optionValue("--code")
@@ -51,6 +65,7 @@ const protocol = protocolOption()
 const timeoutMs = numberOption("--timeout", 90_000)
 const outputPath = optionValue("--output") ?? ".lab-reports/transfer-check.json"
 const profileDir = optionValue("--profile") ?? ".lab-reports/chrome-profile"
+const downloadDir = optionValue("--download-dir") ?? ".lab-reports/downloads"
 const keepOpen = hasFlag("--keep-open")
 const verboseEvents = hasFlag("--verbose-events")
 const eventLimit = numberOption("--event-limit", 30)
@@ -68,6 +83,7 @@ async function main() {
   const browser = await openBrowser()
   const page = await getPage(browser)
   runContext.chromeVersion = await browser.version().catch(() => undefined)
+  const downloads = await configureDownloads(page)
 
   try {
     page.setDefaultTimeout(timeoutMs)
@@ -77,6 +93,7 @@ async function main() {
     await authorizeSession(page)
     if (mode === "diagnostics") {
       await runDiagnostics(page)
+      await waitForDiagnosticsDownloads(downloads)
     } else {
       await runTransferCheck(page)
     }
@@ -101,13 +118,110 @@ async function main() {
 async function closeBrowser(browser: Browser) {
   const close = browser.close()
   const timeout = new Promise<"timeout">((resolve) =>
-    setTimeout(() => resolve("timeout"), 3_000)
+    setTimeout(() => resolve("timeout"), 10_000)
   )
   const result = await Promise.race([close, timeout])
   if (result === "timeout") {
-    log("Chrome did not close within 3000ms; terminating browser process")
+    log("Chrome did not close within 10000ms; terminating browser process")
     browser.process()?.kill()
   }
+}
+
+async function configureDownloads(page: Page): Promise<DownloadTracker> {
+  mkdirSync(downloadDir, { recursive: true })
+
+  const records = new Map<string, DownloadRecord>()
+  const listeners = new Set<() => void>()
+  const notify = () => {
+    for (const listener of listeners) listener()
+  }
+  const tracker: DownloadTracker = {
+    records,
+    supported: false,
+    waitForCompleted: (expectedCount, timeout) =>
+      waitForCompletedDownloads(tracker, listeners, expectedCount, timeout),
+  }
+
+  try {
+    const client = await page.createCDPSession()
+    await client.send("Browser.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: join(process.cwd(), downloadDir),
+      eventsEnabled: true,
+    })
+    client.on("Browser.downloadWillBegin", (event) => {
+      records.set(event.guid, {
+        guid: event.guid,
+        receivedBytes: 0,
+        state: "inProgress",
+        suggestedFilename: event.suggestedFilename,
+        totalBytes: 0,
+      })
+      notify()
+    })
+    client.on("Browser.downloadProgress", (event) => {
+      const previous = records.get(event.guid)
+      records.set(event.guid, {
+        guid: event.guid,
+        receivedBytes: event.receivedBytes,
+        state: event.state,
+        suggestedFilename: previous?.suggestedFilename ?? event.guid,
+        totalBytes: event.totalBytes,
+      })
+      notify()
+    })
+    tracker.supported = true
+    log(`Chrome downloads will be saved to ${downloadDir}`)
+  } catch (error) {
+    log(
+      `Chrome download tracking is unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+  }
+
+  return tracker
+}
+
+async function waitForCompletedDownloads(
+  tracker: DownloadTracker,
+  listeners: Set<() => void>,
+  expectedCount: number,
+  timeout: number
+) {
+  if (expectedCount <= 0) return
+  if (!tracker.supported) {
+    throw new Error(
+      "Diagnostics completed in the page, but Chrome download tracking is unavailable."
+    )
+  }
+
+  const hasEnoughCompleted = () =>
+    Array.from(tracker.records.values()).filter(
+      (record) => record.state === "completed"
+    ).length >= expectedCount
+
+  if (hasEnoughCompleted()) return
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      listeners.delete(listener)
+      reject(
+        new Error(
+          `Timed out waiting for ${expectedCount} Chrome download(s) to complete. Current downloads: ${JSON.stringify(
+            Array.from(tracker.records.values())
+          )}`
+        )
+      )
+    }, timeout)
+    const listener = () => {
+      if (!hasEnoughCompleted()) return
+      clearTimeout(timer)
+      listeners.delete(listener)
+      resolve()
+    }
+    listeners.add(listener)
+  })
 }
 
 async function openBrowser(): Promise<Browser> {
@@ -272,6 +386,19 @@ async function runDiagnostics(page: Page) {
   await waitForResultRow(page, "download", "package_state", timeoutMs)
 }
 
+async function waitForDiagnosticsDownloads(downloads: DownloadTracker) {
+  const expectedCount = packageId ? 2 : 1
+  await downloads.waitForCompleted(expectedCount, timeoutMs)
+  const completed = Array.from(downloads.records.values()).filter(
+    (record) => record.state === "completed"
+  )
+  log(
+    `Completed Chrome downloads: ${completed
+      .map((record) => record.suggestedFilename)
+      .join(", ")}`
+  )
+}
+
 async function readTransferCheckResult(page: Page) {
   const result = await readPageReport(page)
   const upload = result.rows.find((row) => row.action === "upload")
@@ -387,6 +514,7 @@ function reportMeta() {
     chromeVersion: runContext.chromeVersion,
     cdpEndpoint: cdpEndpoint ?? null,
     deviceName,
+    downloadDir: mode === "diagnostics" ? downloadDir : null,
     mode,
     packageId: packageId ?? null,
     profileDir: cdpEndpoint ? null : profileDir,
@@ -567,6 +695,8 @@ Options:
   --timeout <ms>     Operation timeout. Default: 90000
   --output <path>    JSON report path. Default: .lab-reports/transfer-check.json
   --profile <path>   Persistent Chrome profile. Default: .lab-reports/chrome-profile
+  --download-dir <path>
+                    Diagnostics download directory. Default: .lab-reports/downloads
   --event-limit <n>  Number of recent UI events in the JSON report. Default: 30.
   --verbose-events   Include all UI events in the JSON report.
   --keep-open        Leave Chrome open after the run.
