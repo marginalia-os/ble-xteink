@@ -1,4 +1,4 @@
-import type { TransferStatus } from "./types.js"
+import type { TransferStatus } from "./types"
 
 export function decodeStatus(value: ArrayBuffer): TransferStatus {
   const text = new TextDecoder().decode(value)

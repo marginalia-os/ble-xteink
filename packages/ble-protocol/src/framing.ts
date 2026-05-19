@@ -1,11 +1,14 @@
-import { DATA_FRAME_HEADER_BYTES } from "./constants.js"
+import { DATA_FRAME_HEADER_BYTES } from "./constants"
 
 export interface DataFrame {
   sequence: number
   payload: Uint8Array
 }
 
-export function encodeDataFrame(sequence: number, payload: Uint8Array): Uint8Array {
+export function encodeDataFrame(
+  sequence: number,
+  payload: Uint8Array
+): Uint8Array {
   if (!Number.isInteger(sequence) || sequence < 0 || sequence > 0xffffffff) {
     throw new RangeError("sequence must fit uint32")
   }

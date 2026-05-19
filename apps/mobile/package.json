@@ -1,8 +1,8 @@
 {
   "name": "mobile",
   "version": "0.0.1",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
     "start": "react-native start",
     "android": "react-native run-android",

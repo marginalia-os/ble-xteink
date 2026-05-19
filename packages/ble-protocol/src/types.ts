@@ -50,6 +50,13 @@ export interface TrustedHelloCommand {
   response: string
 }
 
+export interface SaveHostCommand {
+  op: "save_host"
+  host_id: string
+  host_name: string
+  secret: string
+}
+
 export interface StartPutCommand {
   op: "start_put"
   kind: UploadKind
@@ -77,6 +84,7 @@ export interface GetAckCommand {
 export type ControlCommand =
   | CodeHelloCommand
   | TrustedHelloCommand
+  | SaveHostCommand
   | StartPutCommand
   | StartGetCommand
   | GetAckCommand

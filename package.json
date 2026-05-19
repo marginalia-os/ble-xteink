@@ -2,27 +2,37 @@
   "name": "ble-xteink",
   "version": "0.0.1",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
+    "lint:ox": "oxlint . --ignore-path .gitignore --react-plugin --nextjs-plugin --jsx-a11y-plugin --vitest-plugin",
     "format": "turbo format",
+    "format:ox": "oxfmt . --write",
+    "format:ox:check": "oxfmt . --check",
+    "hardware:transfer-check": "bun scripts/ble-transfer-check.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "turbo typecheck"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
+    "oxfmt": "^0.50.0",
+    "oxlint": "^1.65.0",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
+    "puppeteer-core": "^25.0.4",
     "turbo": "^2.8.17",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.6"
   },
-  "packageManager": "bun@1.3.3",
   "engines": {
     "node": ">=20"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "packageManager": "bun@1.3.3"
 }
