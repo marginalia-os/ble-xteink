@@ -127,6 +127,7 @@ export function TransferClient() {
     ? repairUploadName(selectedFile.name, uploadKind)
     : null
   const packageIdRepair = packageId ? repairPackageId(packageId) : null
+  const packageStateReady = Boolean(packageIdRepair?.safeId)
   const progress = transferProgress(status)
   const debugReport = toDebugJson({
     connectionState,
@@ -1016,7 +1017,12 @@ export function TransferClient() {
             id="package-state-button"
             variant="outline"
             onClick={downloadPackageState}
-            disabled={!isConnected || !sessionAuthorized || isRunning}
+            disabled={
+              !isConnected ||
+              !sessionAuthorized ||
+              isRunning ||
+              !packageStateReady
+            }
           >
             <DownloadIcon data-icon="inline-start" />
             Package state

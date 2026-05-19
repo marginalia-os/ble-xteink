@@ -380,9 +380,13 @@ async function runDiagnostics(page: Page) {
   await clickButton(page, "Crash report")
   await waitForResultRow(page, "download", "crash_report", timeoutMs)
 
-  if (!packageId) return
+  if (!packageId) {
+    await expectButtonDisabled(page, "Package state")
+    return
+  }
 
   await page.locator("#package-id").fill(packageId)
+  await expectButtonEnabled(page, "Package state")
   await clickButton(page, "Package state")
   await waitForResultRow(page, "download", "package_state", timeoutMs)
 }
@@ -645,6 +649,24 @@ async function buttonDisabled(page: Page, name: string): Promise<boolean> {
     )
     return Boolean(button?.disabled)
   }, name)
+}
+
+async function expectButtonDisabled(page: Page, name: string) {
+  const disabled = await buttonDisabled(page, name)
+  if (!disabled) {
+    throw new Error(
+      `${name} should be disabled before required input is valid.`
+    )
+  }
+}
+
+async function expectButtonEnabled(page: Page, name: string) {
+  const disabled = await buttonDisabled(page, name)
+  if (disabled) {
+    throw new Error(
+      `${name} stayed disabled after required input was provided.`
+    )
+  }
 }
 
 function optionValue(name: string): string | undefined {
