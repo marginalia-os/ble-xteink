@@ -5,6 +5,7 @@ import {
   isSafePackageId,
   isSafeUploadName,
   repairUploadName,
+  repairPackageId,
   uploadSuffixForKind,
 } from "./validation"
 
@@ -57,5 +58,22 @@ describe("validation helpers", () => {
     const repair = repairUploadName("avatar.png", "bmp")
     expect(repair).toMatchObject({ reason: "wrong-extension" })
     expect(repair).not.toHaveProperty("safeName")
+  })
+
+  it("repairs package id whitespace without changing ids", () => {
+    expect(repairPackageId(" org.example.package ")).toMatchObject({
+      reason: "trimmed",
+      safeId: "org.example.package",
+    })
+    expect(repairPackageId("org.example.package")).toMatchObject({
+      reason: "already-safe",
+      safeId: "org.example.package",
+    })
+  })
+
+  it("explains invalid package ids without guessing a target", () => {
+    const repair = repairPackageId("bad package id")
+    expect(repair).toMatchObject({ reason: "invalid" })
+    expect(repair).not.toHaveProperty("safeId")
   })
 })

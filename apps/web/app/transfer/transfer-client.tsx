@@ -13,7 +13,7 @@ import {
   UploadIcon,
 } from "lucide-react"
 
-import { CopyButton } from "@/app/lab/components/copy-button"
+import { CopyButton } from "@/app/components/copy-button"
 import { BleTransferBrowserClient, type BleLabEvent } from "@/lib/ble/client"
 import {
   createPairingHello,
@@ -59,7 +59,7 @@ import {
 import {
   DEFAULT_DOWNLOAD_CHUNK_BYTES,
   inferUploadKindFromName,
-  isSafePackageId,
+  repairPackageId,
   repairUploadName,
   sha256Hex,
   uploadSuffixForKind,
@@ -97,6 +97,7 @@ interface ActiveDownload {
 const UPLOAD_CHUNK_BYTES = 500
 const UPLOAD_ACK_BYTES = 24_000
 const DOWNLOAD_CHUNK_BYTES = DEFAULT_DOWNLOAD_CHUNK_BYTES
+const LAST_PACKAGE_ID_STORAGE_KEY = "ble-xteink:last-package-id"
 
 export function TransferClient() {
   const clientRef = useRef<BleTransferBrowserClient | null>(null)
@@ -125,7 +126,31 @@ export function TransferClient() {
   const selectedUploadNameRepair = selectedFile
     ? repairUploadName(selectedFile.name, uploadKind)
     : null
+  const packageIdRepair = packageId ? repairPackageId(packageId) : null
   const progress = transferProgress(status)
+  const debugReport = toDebugJson({
+    connectionState,
+    error,
+    events,
+    message,
+    packageId: packageId.trim() || null,
+    results,
+    sessionAuthorized,
+    status,
+    upload: {
+      fileName: selectedFile?.name ?? null,
+      kind: uploadKind,
+      repairedName: selectedUploadNameRepair?.safeName ?? null,
+    },
+    workState,
+  })
+
+  useEffect(() => {
+    const savedPackageId = window.localStorage.getItem(
+      LAST_PACKAGE_ID_STORAGE_KEY
+    )
+    if (savedPackageId) setPackageId(savedPackageId)
+  }, [])
 
   async function connect() {
     setError(null)
@@ -505,11 +530,22 @@ export function TransferClient() {
       )
       return
     }
-    if (!isSafePackageId(packageId)) {
-      setError("Enter a valid package id.")
+    const repaired = repairPackageId(packageId)
+    if (!repaired.safeId) {
+      setError(repaired.message)
       return
     }
-    await runDownload({ kind: "package_state", packageId })
+    if (repaired.safeId !== packageId) {
+      setPackageId(repaired.safeId)
+      setMessage(repaired.message)
+    }
+    const result = await runDownload({
+      kind: "package_state",
+      packageId: repaired.safeId,
+    })
+    if (!result?.error) {
+      window.localStorage.setItem(LAST_PACKAGE_ID_STORAGE_KEY, repaired.safeId)
+    }
   }
 
   async function runDownload({
@@ -782,19 +818,22 @@ export function TransferClient() {
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-8 px-5 py-6 text-sm sm:px-8">
       <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-heading text-2xl font-medium">BLE transfer</h1>
-          <Badge variant={isSupported ? "secondary" : "destructive"}>
-            {isSupported
-              ? "Web Bluetooth available"
-              : "Web Bluetooth unavailable"}
-          </Badge>
-          <Badge variant={isConnected ? "default" : "outline"}>
-            {connectionState}
-          </Badge>
-          <Badge variant={isRunning ? "secondary" : "outline"}>
-            {workState}
-          </Badge>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-heading text-2xl font-medium">BLE transfer</h1>
+            <Badge variant={isSupported ? "secondary" : "destructive"}>
+              {isSupported
+                ? "Web Bluetooth available"
+                : "Web Bluetooth unavailable"}
+            </Badge>
+            <Badge variant={isConnected ? "default" : "outline"}>
+              {connectionState}
+            </Badge>
+            <Badge variant={isRunning ? "secondary" : "outline"}>
+              {workState}
+            </Badge>
+          </div>
+          <CopyButton label="Copy report" value={debugReport} />
         </div>
       </header>
 
@@ -910,7 +949,7 @@ export function TransferClient() {
             </Field>
 
             <Field
-              data-invalid={Boolean(packageId && !isSafePackageId(packageId))}
+              data-invalid={Boolean(packageIdRepair && !packageIdRepair.safeId)}
             >
               <FieldLabel htmlFor="package-id">Package id</FieldLabel>
               <Input
@@ -918,15 +957,16 @@ export function TransferClient() {
                 value={packageId}
                 onChange={(event) => setPackageId(event.target.value)}
                 aria-label="Package id"
-                aria-invalid={Boolean(packageId && !isSafePackageId(packageId))}
+                aria-invalid={Boolean(
+                  packageIdRepair && !packageIdRepair.safeId
+                )}
                 className="font-mono"
                 placeholder="org.example.package"
               />
-              {packageId && !isSafePackageId(packageId) ? (
-                <FieldError>
-                  Use 2-96 letters, numbers, dots, underscores, or dashes. Start
-                  with a letter or number.
-                </FieldError>
+              {packageIdRepair && !packageIdRepair.safeId ? (
+                <FieldError>{packageIdRepair.message}</FieldError>
+              ) : packageIdRepair ? (
+                <FieldDescription>{packageIdRepair.message}</FieldDescription>
               ) : (
                 <FieldDescription>
                   Required only for package-state diagnostics.
@@ -937,15 +977,6 @@ export function TransferClient() {
         </FieldGroup>
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            id="transfer-check-button"
-            variant="secondary"
-            onClick={runTransferCheck}
-            disabled={!isConnected || !sessionAuthorized || isRunning}
-          >
-            <FlaskConicalIcon data-icon="inline-start" />
-            Transfer check
-          </Button>
           <Button
             onClick={uploadSelectedFile}
             disabled={
@@ -976,6 +1007,15 @@ export function TransferClient() {
           >
             <DownloadIcon data-icon="inline-start" />
             Package state
+          </Button>
+          <Button
+            id="transfer-check-button"
+            variant="outline"
+            onClick={runTransferCheck}
+            disabled={!isConnected || !sessionAuthorized || isRunning}
+          >
+            <FlaskConicalIcon data-icon="inline-start" />
+            Transfer check
           </Button>
           <Button
             variant="outline"

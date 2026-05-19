@@ -15,7 +15,7 @@ import {
   type BleLabEvent,
   type BleTransferSnapshot,
 } from "@/lib/ble/client"
-import { CopyButton } from "@/app/lab/components/copy-button"
+import { CopyButton } from "@/app/components/copy-button"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import {

@@ -11,7 +11,7 @@ import {
   UnplugIcon,
 } from "lucide-react"
 
-import { CopyButton } from "@/app/lab/components/copy-button"
+import { CopyButton } from "@/app/components/copy-button"
 import { BleTransferBrowserClient, type BleLabEvent } from "@/lib/ble/client"
 import {
   createPairingHello,

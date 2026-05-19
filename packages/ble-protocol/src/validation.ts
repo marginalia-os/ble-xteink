@@ -39,6 +39,12 @@ export interface UploadNameRepair {
   message: string
 }
 
+export interface PackageIdRepair {
+  reason: "already-safe" | "trimmed" | "empty" | "invalid"
+  safeId?: string
+  message: string
+}
+
 export function repairUploadName(
   value: string,
   kind: UploadKind
@@ -76,6 +82,39 @@ export function repairUploadName(
     reason: "repaired-basename",
     safeName: `${safeBase}${suffix}`,
     message: `Uploading as ${safeBase}${suffix}. The original file on your computer is unchanged.`,
+  }
+}
+
+export function repairPackageId(value: string): PackageIdRepair {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return {
+      reason: "empty",
+      message:
+        "Enter the package id to download its package-state diagnostics.",
+    }
+  }
+
+  if (isSafePackageId(trimmed)) {
+    if (trimmed === value) {
+      return {
+        reason: "already-safe",
+        safeId: trimmed,
+        message: "Package id is ready.",
+      }
+    }
+
+    return {
+      reason: "trimmed",
+      safeId: trimmed,
+      message: `Using ${trimmed}. Leading and trailing spaces were ignored.`,
+    }
+  }
+
+  return {
+    reason: "invalid",
+    message:
+      "Package id must be 2-96 characters, start with a letter or number, and use only letters, numbers, dots, underscores, or dashes.",
   }
 }
 
