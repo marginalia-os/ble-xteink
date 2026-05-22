@@ -20,3 +20,5 @@ packages/**/out
 packages/**/build
 packages/**/dist
 packages/**/coverage
+packages/**/.lab-reports
+packages/**/.playwright-mcp
