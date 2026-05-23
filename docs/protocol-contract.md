@@ -1,18 +1,18 @@
 # BLE Transfer Protocol Compatibility
 
-This document is the shared compatibility contract for the Marginalia BLE transfer service and the browser companion at
-<https://ble.marginalia-os.lol/>.
+This document is the shared compatibility contract for the Marginalia and CrossPoint BLE transfer services and the
+browser companion at <https://ble.xteink.lol/>.
 
 ## Compatibility Version
 
 - Protocol version: `1`
-- GATT service name: `Marginalia Transfer`
-- Browser companion: `https://ble.marginalia-os.lol/`
+- GATT service names: `Marginalia Transfer`, `CrossPoint Transfer`
+- Browser companion: `https://ble.xteink.lol/`
 - First browser scope: package, book, BMP, crash-report, and package-state transfers
 - Firmware OTA scope: command-line client only until browser transfer reliability is proven for large firmware images
 
-The firmware does not yet publish a `protocol_version` field in status JSON. Clients should send `hello.version = 1`
-and feature-detect newer behavior from accepted operations and explicit `error` states.
+Older firmware may not publish a `protocol_version` field in status JSON. Clients should send `hello.version = 1` and
+feature-detect newer behavior from capability fields, accepted operations, and explicit `error` states.
 
 ## GATT Service
 
@@ -59,7 +59,21 @@ response = HMAC-SHA256(secret_utf8, message_utf8).hex()
 }
 ```
 
-After code authentication, clients can request a saved host:
+Newer firmware accepts pairing material in the code-authenticated `hello` command:
+
+```json
+{
+  "op": "hello",
+  "version": 1,
+  "code": "123456",
+  "pair_host_id": "host-id",
+  "pair_host_name": "Browser",
+  "pair_secret": "64-lowercase-hex-characters"
+}
+```
+
+The reader can then prompt to save the browser after a successful upload. Legacy firmware can still accept a separate
+`save_host` command after code authentication:
 
 ```json
 {
@@ -70,8 +84,8 @@ After code authentication, clients can request a saved host:
 }
 ```
 
-The client should wait for `paired: true`, `pairing: "skipped"`, or `state: "error"` before starting a transfer that
-depends on trusted-host persistence.
+When a save prompt is active, the client should wait for `paired: true`, `pairing: "skipped"`, or `state: "error"` before
+assuming trusted-host persistence.
 
 ## Control Operations
 
@@ -107,7 +121,8 @@ Supported upload `kind` values:
 - `bmp`
 - `firmware`
 
-The public browser companion exposes `package`, `book`, and `bmp`. `firmware` stays CLI-only for now.
+The public browser companion exposes `package`, `book`, and `bmp` when the connected reader advertises support for them.
+`firmware` stays CLI-only for now.
 
 `start_get` fields:
 
@@ -126,6 +141,9 @@ Supported download `kind` values:
 - `package_state`
 
 `package_state` also requires a safe `package_id`.
+
+CrossPoint firmware does not support packages, package-state diagnostics, arbitrary SD browsing, or arbitrary path reads.
+It advertises `book`, `bmp`, and `firmware` uploads plus `crash_report` downloads.
 
 ## Binary Frames
 
@@ -200,6 +218,15 @@ Known fields:
 - `pairing`
 - `resumable`
 - `ack_bytes`
+- `protocol_version`
+- `firmware_name`
+- `firmware_version`
+- `browser_companion_url`
+- `upload_kinds`
+- `download_kinds`
+- `resume_supported`
+- `firmware_ota_supported`
+- `max_download_chunk_size`
 
 ## Validation Rules
 
@@ -233,15 +260,5 @@ Allowed read destinations:
 
 No arbitrary SD-card browsing, arbitrary path reads, or arbitrary path writes are part of this protocol.
 
-## Future Capability Fields
-
-Compatible firmware can later expose:
-
-- `protocol_version`
-- `firmware_name`
-- `firmware_version`
-- `upload_kinds`
-- `download_kinds`
-- `resume_supported`
-- `firmware_ota_supported`
-- `max_download_chunk_size`
+Capability fields are optional for legacy firmware. When `upload_kinds` or `download_kinds` are present, clients should
+hide unsupported operations instead of probing them by sending rejected commands.

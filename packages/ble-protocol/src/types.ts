@@ -22,6 +22,15 @@ export type TransferState =
 
 export interface TransferStatus {
   state?: TransferState
+  protocol_version?: number
+  firmware_name?: string
+  firmware_version?: string
+  browser_companion_url?: string
+  upload_kinds?: UploadKind[]
+  download_kinds?: DownloadKind[]
+  firmware_ota_supported?: boolean
+  resume_supported?: boolean
+  max_download_chunk_size?: number
   device_id?: string
   device_nonce?: string
   has_trusted_host?: boolean

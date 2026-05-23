@@ -9,6 +9,12 @@ import {
   type TransferStatus,
 } from "@workspace/ble-protocol"
 
+const TRANSFER_DEVICE_NAME_PARTS = [
+  "Marginalia Transfer",
+  "CrossPoint Transfer",
+  "Xteink Transfer",
+]
+
 type LabEventType = "info" | "status" | "data-out" | "error"
 export type BleWriteMode = "response" | "without-response"
 
@@ -82,11 +88,13 @@ export class BleTransferBrowserClient {
     this.emit("info", "Checking previously allowed Bluetooth devices")
     const devices = await navigator.bluetooth.getDevices()
     const device = devices.find((candidate) =>
-      candidate.name?.includes("Marginalia Transfer")
+      TRANSFER_DEVICE_NAME_PARTS.some((namePart) =>
+        candidate.name?.includes(namePart)
+      )
     )
 
     if (!device) {
-      throw new Error("No previously allowed Marginalia Transfer device found.")
+      throw new Error("No previously allowed BLE transfer device found.")
     }
 
     return this.connectToDevice(device, "Using previously allowed device")
