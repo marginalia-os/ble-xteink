@@ -149,8 +149,11 @@ and sends:
 Resume sequence numbers are derived from the byte offset and original chunk size:
 
 ```text
-sequence = offset / chunk_size
+sequence = floor(offset / chunk_size)
 ```
+
+For resumed transfers, `offset` must be exactly divisible by `chunk_size`. Firmware rejects partial offsets that would
+split a protocol frame.
 
 Download chunk size is currently limited to `20..160` bytes. Upload frames may be larger when the central and adapter
 accept them; browser clients should keep conservative defaults and use status progress as receiver flow control.
