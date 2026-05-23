@@ -2,16 +2,21 @@ export type UploadKind = "package" | "book" | "bmp" | "firmware"
 export type DownloadKind = "crash_report" | "package_state"
 
 export type TransferState =
+  | "starting"
   | "advertising"
   | "connected"
   | "receiving"
   | "verifying"
+  | "installing"
   | "confirming"
   | "updating"
   | "installed"
   | "saved"
+  | "sending"
   | "sent"
   | "restarting"
+  | "save_host_prompt"
+  | "forget_host_prompt"
   | "error"
   | string
 
@@ -31,6 +36,7 @@ export interface TransferStatus {
   error?: string
   paired?: boolean
   pairing?: string
+  resumable?: boolean
   ack_bytes?: number
 }
 

@@ -5,7 +5,7 @@ BLE transfer companion for Xteink readers running compatible firmware.
 The project provides a browser client for local BLE file transfer and a React Native workspace for native client work.
 The shared protocol package keeps transfer framing, validation, and authentication helpers consistent across clients.
 
-Production web app: https://ble-xteink.vercel.app/transfer
+Production web app: https://ble.marginalia-os.lol/
 
 ## Workspace
 
