@@ -1,10 +1,20 @@
-# BLE Transfer Protocol Contract
+# BLE Transfer Protocol Compatibility
 
-This is the browser-facing contract for the Xteink/Marginalia/CrossPoint BLE transfer service.
+This document is the shared compatibility contract for the Marginalia BLE transfer service and the browser companion at
+<https://ble.marginalia-os.lol/>.
 
-This document tracks current firmware behavior and the client-visible compatibility contract.
+## Compatibility Version
 
-## Service
+- Protocol version: `1`
+- GATT service name: `Marginalia Transfer`
+- Browser companion: `https://ble.marginalia-os.lol/`
+- First browser scope: package, book, BMP, crash-report, and package-state transfers
+- Firmware OTA scope: command-line client only until browser transfer reliability is proven for large firmware images
+
+The firmware does not yet publish a `protocol_version` field in status JSON. Clients should send `hello.version = 1`
+and feature-detect newer behavior from accepted operations and explicit `error` states.
+
+## GATT Service
 
 Service UUID:
 
@@ -23,16 +33,7 @@ Characteristics:
 
 ## Authentication
 
-First use uses a visible six-digit code.
-
-Trusted-host authentication uses:
-
-```text
-message = "{device_nonce}|{host_id}|1"
-response = HMAC-SHA256(secret_utf8, message_utf8).hex()
-```
-
-Code `hello`:
+First use uses the six-digit code shown on the Bluetooth Transfer screen:
 
 ```json
 {
@@ -42,7 +43,12 @@ Code `hello`:
 }
 ```
 
-Trusted-host `hello`:
+Trusted-host authentication uses the device nonce from status JSON:
+
+```text
+message = "{device_nonce}|{host_id}|1"
+response = HMAC-SHA256(secret_utf8, message_utf8).hex()
+```
 
 ```json
 {
@@ -53,18 +59,7 @@ Trusted-host `hello`:
 }
 ```
 
-Legacy pairing request fields can be included with code auth for upload flows:
-
-```json
-{
-  "pair_host_id": "host-id",
-  "pair_host_name": "MacBook",
-  "pair_secret": "64-lowercase-hex-characters"
-}
-```
-
-Browser diagnostic flows should request pairing explicitly after code auth and
-before downloads:
+After code authentication, clients can request a saved host:
 
 ```json
 {
@@ -75,10 +70,22 @@ before downloads:
 }
 ```
 
-The browser waits for `paired: true`, `pairing: "skipped"`, or `error` before
-starting diagnostics.
+The client should wait for `paired: true`, `pairing: "skipped"`, or `state: "error"` before starting a transfer that
+depends on trusted-host persistence.
 
-## Upload Command
+## Control Operations
+
+Supported control `op` names:
+
+- `hello`
+- `save_host`
+- `start_put`
+- `commit`
+- `cancel`
+- `start_get`
+- `get_ack`
+
+`start_put` fields:
 
 ```json
 {
@@ -89,55 +96,20 @@ starting diagnostics.
   "sha256": "hex-sha256",
   "resume": false,
   "chunk_size": 160,
-  "ack_bytes": 960
+  "ack_bytes": 24000
 }
 ```
 
-Allowed `kind` values depend on firmware:
+Supported upload `kind` values:
 
 - `package`
 - `book`
 - `bmp`
 - `firmware`
 
-Browser clients keep `firmware` hidden until Web Bluetooth transfer reliability is measured on supported platforms.
+The public browser companion exposes `package`, `book`, and `bmp`. `firmware` stays CLI-only for now.
 
-## Upload Frame
-
-Each `data-in` write is:
-
-```text
-uint32_le sequence
-uint8[] payload
-```
-
-The first sequence is `0` unless resuming. Resume sequence is:
-
-```text
-sequence = resume_offset / chunk_size
-```
-
-The payload length must be less than or equal to `chunk_size`. For write without response, the entire frame must fit the
-browser/adapter write limit. Because Web Bluetooth does not expose a reliable maximum write-without-response size, the
-web client must discover safe values through compatibility testing and keep conservative defaults.
-
-## Commit And Cancel
-
-Commit:
-
-```json
-{ "op": "commit" }
-```
-
-Cancel:
-
-```json
-{ "op": "cancel" }
-```
-
-## Download Command
-
-Crash report:
+`start_get` fields:
 
 ```json
 {
@@ -148,35 +120,24 @@ Crash report:
 }
 ```
 
-Package state:
-
-```json
-{
-  "op": "start_get",
-  "kind": "package_state",
-  "package_id": "org.example.package",
-  "offset": 0,
-  "chunk_size": 160
-}
-```
-
-Allowed download kinds:
+Supported download `kind` values:
 
 - `crash_report`
 - `package_state`
 
-No arbitrary path reads are allowed.
+`package_state` also requires a safe `package_id`.
 
-## Download Frame
+## Binary Frames
 
-Each `data-out` notification is:
+Uploads write frames to `data-in`:
 
 ```text
 uint32_le sequence
 uint8[] payload
 ```
 
-The client validates the sequence and then sends:
+Downloads notify frames on `data-out` with the same layout. After each download frame, the client validates the sequence
+and sends:
 
 ```json
 {
@@ -185,29 +146,40 @@ The client validates the sequence and then sends:
 }
 ```
 
-The device sends the next frame only after the ACK.
-
-## Validation Rules
-
-Safe upload filename:
-
-- basename only;
-- no `/` or `\`;
-- non-empty;
-- at most 96 bytes;
-- does not start with `.`;
-- ASCII letters, ASCII digits, `.`, `_`, and `-` only;
-- suffix must match the upload kind.
-
-Package id:
+Resume sequence numbers are derived from the byte offset and original chunk size:
 
 ```text
-^[A-Za-z0-9][A-Za-z0-9._-]{1,95}$
+sequence = floor(offset / chunk_size)
 ```
+
+For resumed transfers, `offset` must be exactly divisible by `chunk_size`. Firmware rejects partial offsets that would
+split a protocol frame.
+
+Download chunk size is currently limited to `20..160` bytes. Upload frames may be larger when the central and adapter
+accept them; browser clients should keep conservative defaults and use status progress as receiver flow control.
 
 ## Status
 
 The `status` characteristic is UTF-8 JSON.
+
+Known states:
+
+- `starting`
+- `advertising`
+- `connected`
+- `receiving`
+- `verifying`
+- `installing`
+- `installed`
+- `saved`
+- `confirming`
+- `updating`
+- `restarting`
+- `sending`
+- `sent`
+- `save_host_prompt`
+- `forget_host_prompt`
+- `error`
 
 Known fields:
 
@@ -226,25 +198,44 @@ Known fields:
 - `error`
 - `paired`
 - `pairing`
+- `resumable`
 - `ack_bytes`
 
-Known states:
+## Validation Rules
 
-- `advertising`
-- `connected`
-- `receiving`
-- `verifying`
-- `confirming`
-- `updating`
-- `installed`
-- `saved`
-- `sent`
-- `restarting`
-- `error`
+Safe upload filenames:
 
-## Candidate Capability Fields
+- basename only;
+- no `/` or `\`;
+- non-empty;
+- at most 96 bytes;
+- not dot-prefixed;
+- ASCII letters, ASCII digits, `.`, `_`, and `-` only;
+- suffix must match the upload kind.
 
-Compatible firmware can expose:
+Upload suffixes:
+
+- `package`: `.mpkg.zip`
+- `book`: `.epub`
+- `bmp`: `.bmp`
+- `firmware`: `.bin`
+
+Safe package id:
+
+```text
+^[A-Za-z0-9][A-Za-z0-9._-]{1,95}$
+```
+
+Allowed read destinations:
+
+- `/crash_report.txt`
+- `/.marginalia/package-state/<safe-package-id>.json`
+
+No arbitrary SD-card browsing, arbitrary path reads, or arbitrary path writes are part of this protocol.
+
+## Future Capability Fields
+
+Compatible firmware can later expose:
 
 - `protocol_version`
 - `firmware_name`
