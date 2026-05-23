@@ -1,17 +1,21 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import {
   AlertCircleIcon,
   BluetoothIcon,
   CheckCircle2Icon,
   DownloadIcon,
   FlaskConicalIcon,
+  MoonIcon,
   RefreshCwIcon,
   SendIcon,
+  SunIcon,
   UnplugIcon,
   UploadIcon,
 } from "lucide-react"
+import { useTheme } from "next-themes"
 
 import { CopyButton } from "@/app/components/copy-button"
 import { BleTransferBrowserClient, type BleLabEvent } from "@/lib/ble/client"
@@ -40,7 +44,6 @@ import {
 } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Progress } from "@workspace/ui/components/progress"
-import { Separator } from "@workspace/ui/components/separator"
 import {
   Select,
   SelectContent,
@@ -74,6 +77,11 @@ import {
 
 type ConnectionState = "idle" | "connecting" | "connected" | "error"
 type WorkState = "idle" | "running" | "done" | "error"
+type BrowserUploadKind = Exclude<UploadKind, "firmware">
+type UploadKindSelection = "auto" | UploadKind
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (callback: () => void) => void
+}
 
 interface TransferResult {
   action: "upload" | "download"
@@ -99,6 +107,7 @@ const UPLOAD_CHUNK_BYTES = 500
 const UPLOAD_ACK_BYTES = 24_000
 const DOWNLOAD_CHUNK_BYTES = DEFAULT_DOWNLOAD_CHUNK_BYTES
 const LAST_PACKAGE_ID_STORAGE_KEY = "ble-xteink:last-package-id"
+const BROWSER_UPLOAD_KINDS = ["package", "book", "bmp"] as const
 
 export function TransferClient() {
   const clientRef = useRef<BleTransferBrowserClient | null>(null)
@@ -115,18 +124,25 @@ export function TransferClient() {
   const [sessionAuthorized, setSessionAuthorized] = useState(false)
   const [code, setCode] = useState("")
   const [packageId, setPackageId] = useState("")
-  const [uploadKind, setUploadKind] = useState<UploadKind>("package")
+  const [uploadKind, setUploadKind] = useState<UploadKindSelection>("auto")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isSupported = useBrowserBluetoothSupport()
+  const showDevTools = useDevToolsEnabled()
 
   const isBusy = connectionState === "connecting"
   const isConnected = connectionState === "connected"
   const isRunning = workState === "running"
-  const selectedUploadNameRepair = selectedFile
-    ? repairUploadName(selectedFile.name, uploadKind)
-    : null
+  const selectedUploadKind = resolveBrowserUploadKind(uploadKind, selectedFile)
+  const selectedUploadNameRepair =
+    selectedFile && selectedUploadKind
+      ? repairUploadName(selectedFile.name, selectedUploadKind)
+      : null
+  const selectedUploadProblem =
+    selectedFile && !selectedUploadKind
+      ? explainUnsupportedUploadFile(selectedFile.name)
+      : null
   const packageIdRepair = packageId ? repairPackageId(packageId) : null
   const packageStateReady = Boolean(packageIdRepair?.safeId)
   const progress = transferProgress(status)
@@ -142,6 +158,7 @@ export function TransferClient() {
     upload: {
       fileName: selectedFile?.name ?? null,
       kind: uploadKind,
+      resolvedKind: selectedUploadKind,
       repairedName: selectedUploadNameRepair?.safeName ?? null,
     },
     workState,
@@ -280,16 +297,20 @@ export function TransferClient() {
     if (!file) return
 
     const inferredKind = inferUploadKindFromName(file.name)
-    const effectiveKind = inferredKind ?? uploadKind
     if (
       inferredKind &&
-      inferredKind !== "firmware" &&
-      inferredKind !== uploadKind
+      isBrowserUploadKind(inferredKind) &&
+      uploadKind === "auto"
     ) {
-      setUploadKind(inferredKind)
       setMessage(
-        `Upload kind changed to ${uploadKindLabel(inferredKind)} because the file ends in ${uploadSuffixForKind(inferredKind)}.`
+        `Detected ${uploadKindLabel(inferredKind)} from ${uploadSuffixForKind(inferredKind)}.`
       )
+    }
+
+    const effectiveKind = resolveBrowserUploadKind(uploadKind, file)
+    if (!effectiveKind) {
+      setError(explainUnsupportedUploadFile(file.name))
+      return
     }
 
     if (effectiveKind !== "package") return
@@ -395,11 +416,16 @@ export function TransferClient() {
     }
 
     setError(null)
+    const kind = resolveBrowserUploadKind(uploadKind, file)
+    if (!kind) {
+      setError(explainUnsupportedUploadFile(file.name))
+      return
+    }
     const payload = new Uint8Array(await file.arrayBuffer())
     await uploadBytes({
       payload,
       fileName: file.name,
-      kind: uploadKind,
+      kind,
     })
   }
 
@@ -849,28 +875,36 @@ export function TransferClient() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-8 px-5 py-6 text-sm sm:px-8">
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-heading text-2xl font-medium">BLE transfer</h1>
-            <Badge variant={isSupported ? "secondary" : "destructive"}>
-              {isSupported
-                ? "Web Bluetooth available"
-                : "Web Bluetooth unavailable"}
-            </Badge>
-            <Badge variant={isConnected ? "default" : "outline"}>
-              {connectionState}
-            </Badge>
-            <Badge variant={isRunning ? "secondary" : "outline"}>
-              {workState}
-            </Badge>
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-5 px-5 py-5 text-sm sm:px-8 sm:py-6">
+      <header>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <ConnectionIndicator state={connectionState} />
+            <h1 className="shrink-0 font-heading text-2xl font-medium">
+              BLE transfer
+            </h1>
+            {workState !== "idle" ? (
+              <Badge
+                className="max-sm:hidden"
+                variant={isRunning ? "secondary" : "outline"}
+              >
+                {workStateLabel(workState)}
+              </Badge>
+            ) : null}
           </div>
-          <CopyButton label="Copy report" value={debugReport} />
+          <div className="flex shrink-0 items-center gap-2">
+            <CopyButton
+              compactOnMobile
+              label="Copy report"
+              value={debugReport}
+              variant="ghost"
+            />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
-      <section className="flex flex-col gap-4 border-y py-5">
+      <section className="flex flex-col gap-4">
         <div className="flex flex-wrap gap-2">
           <Button
             id="connect-button"
@@ -932,7 +966,9 @@ export function TransferClient() {
 
             <Field
               data-invalid={Boolean(
-                selectedUploadNameRepair?.safeName === undefined && selectedFile
+                selectedFile &&
+                (selectedUploadProblem ||
+                  selectedUploadNameRepair?.safeName === undefined)
               )}
             >
               <FieldLabel htmlFor="upload-file">Upload file</FieldLabel>
@@ -942,8 +978,9 @@ export function TransferClient() {
                 accept={acceptForUploadKind(uploadKind)}
                 aria-label="Upload file"
                 aria-invalid={Boolean(
-                  selectedUploadNameRepair?.safeName === undefined &&
-                  selectedFile
+                  selectedFile &&
+                  (selectedUploadProblem ||
+                    selectedUploadNameRepair?.safeName === undefined)
                 )}
                 onChange={(event) =>
                   void chooseUploadFile(event.currentTarget.files?.[0] ?? null)
@@ -955,9 +992,11 @@ export function TransferClient() {
                 </FieldDescription>
               ) : selectedUploadNameRepair ? (
                 <FieldError>{selectedUploadNameRepair.message}</FieldError>
+              ) : selectedUploadProblem ? (
+                <FieldError>{selectedUploadProblem}</FieldError>
               ) : (
                 <FieldDescription>
-                  Pick a file that matches the selected upload kind.
+                  Pick a package, EPUB book, or BMP image.
                 </FieldDescription>
               )}
             </Field>
@@ -966,19 +1005,27 @@ export function TransferClient() {
               <FieldLabel>Upload kind</FieldLabel>
               <Select
                 value={uploadKind}
-                onValueChange={(value) => setUploadKind(value as UploadKind)}
+                onValueChange={(value) =>
+                  setUploadKind(value as UploadKindSelection)
+                }
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
+                    <SelectItem value="auto">Auto-detect</SelectItem>
                     <SelectItem value="package">Package</SelectItem>
                     <SelectItem value="book">Book</SelectItem>
                     <SelectItem value="bmp">BMP</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              <FieldDescription>
+                {selectedUploadKind
+                  ? `Using ${uploadKindLabel(selectedUploadKind)} for this file.`
+                  : "Default is auto-detect from the file extension."}
+              </FieldDescription>
             </Field>
 
             <Field
@@ -1018,6 +1065,7 @@ export function TransferClient() {
               !sessionAuthorized ||
               isRunning ||
               !selectedFile ||
+              !selectedUploadKind ||
               !selectedUploadNameRepair?.safeName
             }
           >
@@ -1047,15 +1095,17 @@ export function TransferClient() {
             <DownloadIcon data-icon="inline-start" />
             Package state
           </Button>
-          <Button
-            id="transfer-check-button"
-            variant="outline"
-            onClick={runTransferCheck}
-            disabled={!isConnected || !sessionAuthorized || isRunning}
-          >
-            <FlaskConicalIcon data-icon="inline-start" />
-            Transfer check
-          </Button>
+          {showDevTools ? (
+            <Button
+              id="transfer-check-button"
+              variant="outline"
+              onClick={runTransferCheck}
+              disabled={!isConnected || !sessionAuthorized || isRunning}
+            >
+              <FlaskConicalIcon data-icon="inline-start" />
+              Transfer check
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             onClick={forgetBrowser}
@@ -1091,7 +1141,7 @@ export function TransferClient() {
         ) : null}
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
+      <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-medium">Results</h2>
@@ -1156,8 +1206,6 @@ export function TransferClient() {
         </div>
       </section>
 
-      <Separator />
-
       <section className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium">Event log</h2>
@@ -1213,6 +1261,65 @@ function useBrowserBluetoothSupport() {
   return isSupported
 }
 
+function useDevToolsEnabled() {
+  const [isEnabled, setIsEnabled] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setIsEnabled(params.get("dev") === "1" || params.has("dev"))
+  }, [])
+
+  return isEnabled
+}
+
+function ConnectionIndicator({ state }: { state: ConnectionState }) {
+  return (
+    <span
+      aria-label={connectionStateLabel(state)}
+      className="inline-flex size-3 rounded-full bg-destructive ring-2 ring-background data-[state=connected]:bg-emerald-500 data-[state=connecting]:bg-amber-500"
+      data-state={state}
+      title={connectionStateLabel(state)}
+    />
+  )
+}
+
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+
+  function toggleTheme() {
+    const nextTheme = isDark ? "light" : "dark"
+    const transitionDocument = document as ViewTransitionDocument
+    if (!transitionDocument.startViewTransition) {
+      setTheme(nextTheme)
+      return
+    }
+
+    transitionDocument.startViewTransition(() => {
+      flushSync(() => {
+        setTheme(nextTheme)
+      })
+    })
+  }
+
+  return (
+    <Button
+      aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      className="size-10"
+      onClick={toggleTheme}
+      size="icon"
+      type="button"
+      variant="ghost"
+    >
+      {isDark ? (
+        <SunIcon data-icon="inline-start" />
+      ) : (
+        <MoonIcon data-icon="inline-start" />
+      )}
+    </Button>
+  )
+}
+
 function nowMs() {
   return performance.now()
 }
@@ -1262,7 +1369,60 @@ function statusLabel(state: string): string {
   }
 }
 
-function acceptForUploadKind(kind: UploadKind): string {
+function connectionStateLabel(state: ConnectionState): string {
+  switch (state) {
+    case "idle":
+      return "not connected"
+    case "connecting":
+      return "connecting"
+    case "connected":
+      return "connected"
+    case "error":
+      return "connection error"
+  }
+}
+
+function workStateLabel(state: WorkState): string {
+  switch (state) {
+    case "idle":
+      return "idle"
+    case "running":
+      return "transferring"
+    case "done":
+      return "done"
+    case "error":
+      return "transfer error"
+  }
+}
+
+function isBrowserUploadKind(kind: UploadKind): kind is BrowserUploadKind {
+  return BROWSER_UPLOAD_KINDS.includes(kind as BrowserUploadKind)
+}
+
+function resolveBrowserUploadKind(
+  selection: UploadKindSelection,
+  file: { name: string } | null
+): BrowserUploadKind | null {
+  if (selection !== "auto")
+    return isBrowserUploadKind(selection) ? selection : null
+  const inferredKind = file ? inferUploadKindFromName(file.name) : null
+  return inferredKind && isBrowserUploadKind(inferredKind) ? inferredKind : null
+}
+
+function explainUnsupportedUploadFile(name: string): string {
+  const inferredKind = inferUploadKindFromName(name)
+  if (inferredKind === "firmware") {
+    return "Firmware upload is not available in the browser tool. Use the CLI OTA flow for .bin firmware files."
+  }
+  return "This file type is not supported here. Choose a .mpkg.zip package, .epub book, or .bmp image."
+}
+
+function acceptForUploadKind(kind: UploadKindSelection): string {
+  if (kind === "auto") {
+    return BROWSER_UPLOAD_KINDS.map((candidate) =>
+      uploadSuffixForKind(candidate)
+    ).join(",")
+  }
   return uploadSuffixForKind(kind)
 }
 

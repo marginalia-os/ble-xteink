@@ -52,7 +52,7 @@ interface DownloadTracker {
   waitForCompleted(expectedCount: number, timeout: number): Promise<void>
 }
 
-const url = optionValue("--url") ?? "http://localhost:3000/transfer"
+const url = optionValue("--url") ?? "http://localhost:3000/transfer?dev=1"
 const deviceName = optionValue("--device") ?? "Marginalia Transfer"
 const pairCode = optionValue("--code")
 const packageIdOption = optionValue("--package-id")
@@ -759,7 +759,7 @@ function printUsage() {
   console.log(`Usage: bun run hardware:transfer-check -- [options]
 
 Options:
-  --url <url>        Transfer page URL. Default: http://localhost:3000/transfer
+  --url <url>        Transfer page URL. Default: http://localhost:3000/transfer?dev=1
   --device <name>    Device name substring. Default: Marginalia Transfer
   --mode <name>      transfer-check or diagnostics. Default: transfer-check.
   --package-id <id>  Optional package id for diagnostics package-state download.
