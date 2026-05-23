@@ -134,7 +134,20 @@ export function TransferClient() {
   const isBusy = connectionState === "connecting"
   const isConnected = connectionState === "connected"
   const isRunning = workState === "running"
-  const selectedUploadKind = resolveBrowserUploadKind(uploadKind, selectedFile)
+  const availableUploadKinds = browserUploadKindsForStatus(status)
+  const availableDownloadKinds = downloadKindsForStatus(status)
+  const packageIdRepair = packageId ? repairPackageId(packageId) : null
+  const packageFeaturesAvailable =
+    availableUploadKinds.includes("package") ||
+    availableDownloadKinds.includes("package_state")
+  const packageStateReady =
+    availableDownloadKinds.includes("package_state") &&
+    Boolean(packageIdRepair?.safeId)
+  const selectedUploadKind = resolveBrowserUploadKind(
+    uploadKind,
+    selectedFile,
+    availableUploadKinds
+  )
   const selectedUploadNameRepair =
     selectedFile && selectedUploadKind
       ? repairUploadName(selectedFile.name, selectedUploadKind)
@@ -143,8 +156,6 @@ export function TransferClient() {
     selectedFile && !selectedUploadKind
       ? explainUnsupportedUploadFile(selectedFile.name)
       : null
-  const packageIdRepair = packageId ? repairPackageId(packageId) : null
-  const packageStateReady = Boolean(packageIdRepair?.safeId)
   const progress = transferProgress(status)
   const debugReport = toDebugJson({
     connectionState,
@@ -170,6 +181,15 @@ export function TransferClient() {
     )
     if (savedPackageId) setPackageId(savedPackageId)
   }, [])
+
+  useEffect(() => {
+    if (
+      uploadKind !== "auto" &&
+      !availableUploadKinds.includes(uploadKind as BrowserUploadKind)
+    ) {
+      setUploadKind("auto")
+    }
+  }, [availableUploadKinds, uploadKind])
 
   async function connect() {
     setError(null)
@@ -266,6 +286,16 @@ export function TransferClient() {
       }
       setSessionAuthorized(true)
 
+      if (
+        usesDeferredPairing(currentStatus) ||
+        usesDeferredPairing(helloStatus)
+      ) {
+        setMessage(
+          "Reader will ask to save this browser after the next upload."
+        )
+        return
+      }
+
       const saveVersion = statusVersionRef.current
       await client.writeControl(pairing.saveCommand)
       setMessage("Confirm save-browser on the reader.")
@@ -307,7 +337,11 @@ export function TransferClient() {
       )
     }
 
-    const effectiveKind = resolveBrowserUploadKind(uploadKind, file)
+    const effectiveKind = resolveBrowserUploadKind(
+      uploadKind,
+      file,
+      browserUploadKindsForStatus(statusRef.current)
+    )
     if (!effectiveKind) {
       setError(explainUnsupportedUploadFile(file.name))
       return
@@ -416,7 +450,11 @@ export function TransferClient() {
     }
 
     setError(null)
-    const kind = resolveBrowserUploadKind(uploadKind, file)
+    const kind = resolveBrowserUploadKind(
+      uploadKind,
+      file,
+      browserUploadKindsForStatus(statusRef.current)
+    )
     if (!kind) {
       setError(explainUnsupportedUploadFile(file.name))
       return
@@ -443,6 +481,16 @@ export function TransferClient() {
     if (!sessionAuthorized) {
       setError(
         "Authorize this session first: enter the six-digit code or reconnect with a saved trusted browser."
+      )
+      return null
+    }
+    if (
+      !browserUploadKindsForStatus(statusRef.current).includes(
+        kind as BrowserUploadKind
+      )
+    ) {
+      setError(
+        `${uploadKindLabel(kind)} upload is not available on this reader.`
       )
       return null
     }
@@ -569,6 +617,10 @@ export function TransferClient() {
       )
       return
     }
+    if (!downloadKindsForStatus(statusRef.current).includes("crash_report")) {
+      setError("Crash-report download is not available on this reader.")
+      return
+    }
     await runDownload({ kind: "crash_report", saveFile: true })
   }
 
@@ -577,6 +629,10 @@ export function TransferClient() {
       setError(
         "Authorize this session first: enter the six-digit code or reconnect with a saved trusted browser."
       )
+      return
+    }
+    if (!downloadKindsForStatus(statusRef.current).includes("package_state")) {
+      setError("Package-state download is not available on this reader.")
       return
     }
     const repaired = repairPackageId(packageId)
@@ -609,6 +665,12 @@ export function TransferClient() {
   }): Promise<TransferResult | null> {
     const client = clientRef.current
     if (!client) return null
+    if (!downloadKindsForStatus(statusRef.current).includes(kind)) {
+      setError(
+        `${downloadKindLabel(kind)} download is not available on this reader.`
+      )
+      return null
+    }
 
     const active: ActiveDownload = {
       chunks: [],
@@ -975,7 +1037,7 @@ export function TransferClient() {
               <Input
                 id="upload-file"
                 type="file"
-                accept={acceptForUploadKind(uploadKind)}
+                accept={acceptForUploadKind(uploadKind, availableUploadKinds)}
                 aria-label="Upload file"
                 aria-invalid={Boolean(
                   selectedFile &&
@@ -996,7 +1058,7 @@ export function TransferClient() {
                 <FieldError>{selectedUploadProblem}</FieldError>
               ) : (
                 <FieldDescription>
-                  Pick a package, EPUB book, or BMP image.
+                  Pick {uploadKindListLabel(availableUploadKinds)}.
                 </FieldDescription>
               )}
             </Field>
@@ -1015,9 +1077,11 @@ export function TransferClient() {
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="auto">Auto-detect</SelectItem>
-                    <SelectItem value="package">Package</SelectItem>
-                    <SelectItem value="book">Book</SelectItem>
-                    <SelectItem value="bmp">BMP</SelectItem>
+                    {availableUploadKinds.map((kind) => (
+                      <SelectItem key={kind} value={kind}>
+                        {uploadKindLabel(kind)}
+                      </SelectItem>
+                    ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -1028,31 +1092,35 @@ export function TransferClient() {
               </FieldDescription>
             </Field>
 
-            <Field
-              data-invalid={Boolean(packageIdRepair && !packageIdRepair.safeId)}
-            >
-              <FieldLabel htmlFor="package-id">Package id</FieldLabel>
-              <Input
-                id="package-id"
-                value={packageId}
-                onChange={(event) => setPackageId(event.target.value)}
-                aria-label="Package id"
-                aria-invalid={Boolean(
+            {packageFeaturesAvailable ? (
+              <Field
+                data-invalid={Boolean(
                   packageIdRepair && !packageIdRepair.safeId
                 )}
-                className="font-mono"
-                placeholder="org.example.package"
-              />
-              {packageIdRepair && !packageIdRepair.safeId ? (
-                <FieldError>{packageIdRepair.message}</FieldError>
-              ) : packageIdRepair ? (
-                <FieldDescription>{packageIdRepair.message}</FieldDescription>
-              ) : (
-                <FieldDescription>
-                  Required only for package-state diagnostics.
-                </FieldDescription>
-              )}
-            </Field>
+              >
+                <FieldLabel htmlFor="package-id">Package id</FieldLabel>
+                <Input
+                  id="package-id"
+                  value={packageId}
+                  onChange={(event) => setPackageId(event.target.value)}
+                  aria-label="Package id"
+                  aria-invalid={Boolean(
+                    packageIdRepair && !packageIdRepair.safeId
+                  )}
+                  className="font-mono"
+                  placeholder="org.example.package"
+                />
+                {packageIdRepair && !packageIdRepair.safeId ? (
+                  <FieldError>{packageIdRepair.message}</FieldError>
+                ) : packageIdRepair ? (
+                  <FieldDescription>{packageIdRepair.message}</FieldDescription>
+                ) : (
+                  <FieldDescription>
+                    Required only for package-state diagnostics.
+                  </FieldDescription>
+                )}
+              </Field>
+            ) : null}
           </div>
         </FieldGroup>
 
@@ -1076,25 +1144,32 @@ export function TransferClient() {
             id="crash-report-button"
             variant="outline"
             onClick={downloadCrashReport}
-            disabled={!isConnected || !sessionAuthorized || isRunning}
-          >
-            <DownloadIcon data-icon="inline-start" />
-            Crash report
-          </Button>
-          <Button
-            id="package-state-button"
-            variant="outline"
-            onClick={downloadPackageState}
             disabled={
               !isConnected ||
               !sessionAuthorized ||
               isRunning ||
-              !packageStateReady
+              !availableDownloadKinds.includes("crash_report")
             }
           >
             <DownloadIcon data-icon="inline-start" />
-            Package state
+            Crash report
           </Button>
+          {availableDownloadKinds.includes("package_state") ? (
+            <Button
+              id="package-state-button"
+              variant="outline"
+              onClick={downloadPackageState}
+              disabled={
+                !isConnected ||
+                !sessionAuthorized ||
+                isRunning ||
+                !packageStateReady
+              }
+            >
+              <DownloadIcon data-icon="inline-start" />
+              Package state
+            </Button>
+          ) : null}
           {showDevTools ? (
             <Button
               id="transfer-check-button"
@@ -1399,14 +1474,44 @@ function isBrowserUploadKind(kind: UploadKind): kind is BrowserUploadKind {
   return BROWSER_UPLOAD_KINDS.includes(kind as BrowserUploadKind)
 }
 
+function browserUploadKindsForStatus(
+  status: TransferStatus | null
+): BrowserUploadKind[] {
+  const advertised = status?.upload_kinds
+  if (advertised === undefined) return [...BROWSER_UPLOAD_KINDS]
+  return advertised.filter(isBrowserUploadKind)
+}
+
+function downloadKindsForStatus(status: TransferStatus | null): DownloadKind[] {
+  return status?.download_kinds === undefined
+    ? ["crash_report", "package_state"]
+    : status.download_kinds
+}
+
+function usesDeferredPairing(status: TransferStatus | null): boolean {
+  return Boolean(
+    status?.protocol_version ||
+    status?.upload_kinds?.length ||
+    status?.download_kinds?.length
+  )
+}
+
 function resolveBrowserUploadKind(
   selection: UploadKindSelection,
-  file: { name: string } | null
+  file: { name: string } | null,
+  availableKinds: readonly BrowserUploadKind[]
 ): BrowserUploadKind | null {
-  if (selection !== "auto")
-    return isBrowserUploadKind(selection) ? selection : null
+  if (selection !== "auto") {
+    return isBrowserUploadKind(selection) && availableKinds.includes(selection)
+      ? selection
+      : null
+  }
   const inferredKind = file ? inferUploadKindFromName(file.name) : null
-  return inferredKind && isBrowserUploadKind(inferredKind) ? inferredKind : null
+  return inferredKind &&
+    isBrowserUploadKind(inferredKind) &&
+    availableKinds.includes(inferredKind)
+    ? inferredKind
+    : null
 }
 
 function explainUnsupportedUploadFile(name: string): string {
@@ -1417,13 +1522,21 @@ function explainUnsupportedUploadFile(name: string): string {
   return "This file type is not supported here. Choose a .mpkg.zip package, .epub book, or .bmp image."
 }
 
-function acceptForUploadKind(kind: UploadKindSelection): string {
+function acceptForUploadKind(
+  kind: UploadKindSelection,
+  availableKinds: readonly BrowserUploadKind[]
+): string {
   if (kind === "auto") {
-    return BROWSER_UPLOAD_KINDS.map((candidate) =>
-      uploadSuffixForKind(candidate)
-    ).join(",")
+    return availableKinds
+      .map((candidate) => uploadSuffixForKind(candidate))
+      .join(",")
   }
   return uploadSuffixForKind(kind)
+}
+
+function uploadKindListLabel(kinds: readonly BrowserUploadKind[]): string {
+  if (kinds.length === 0) return "a supported file"
+  return kinds.map((kind) => uploadKindLabel(kind)).join(", ")
 }
 
 function uploadKindLabel(kind: UploadKind): string {
@@ -1436,6 +1549,15 @@ function uploadKindLabel(kind: UploadKind): string {
       return "BMP"
     case "firmware":
       return "Firmware"
+  }
+}
+
+function downloadKindLabel(kind: DownloadKind): string {
+  switch (kind) {
+    case "crash_report":
+      return "Crash-report"
+    case "package_state":
+      return "Package-state"
   }
 }
 

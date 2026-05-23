@@ -90,6 +90,9 @@ export function createPairingHello(
       op: "hello",
       version: 1,
       code,
+      pair_host_id: record.hostId,
+      pair_host_name: record.hostName,
+      pair_secret: record.secret,
     },
     saveCommand: {
       op: "save_host",

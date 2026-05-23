@@ -9,6 +9,12 @@ import {
   type TransferStatus,
 } from "@workspace/ble-protocol"
 
+const TRANSFER_DEVICE_NAME_PARTS = [
+  "Marginalia Transfer",
+  "CrossPoint Transfer",
+  "Xteink Transfer",
+]
+
 type LabEventType = "info" | "status" | "data-out" | "error"
 export type BleWriteMode = "response" | "without-response"
 
@@ -82,11 +88,13 @@ export class BleTransferBrowserClient {
     this.emit("info", "Checking previously allowed Bluetooth devices")
     const devices = await navigator.bluetooth.getDevices()
     const device = devices.find((candidate) =>
-      candidate.name?.includes("Marginalia Transfer")
+      TRANSFER_DEVICE_NAME_PARTS.some((namePart) =>
+        candidate.name?.includes(namePart)
+      )
     )
 
     if (!device) {
-      throw new Error("No previously allowed Marginalia Transfer device found.")
+      throw new Error("No previously allowed BLE transfer device found.")
     }
 
     return this.connectToDevice(device, "Using previously allowed device")
@@ -190,7 +198,11 @@ export class BleTransferBrowserClient {
 
     const payload = new TextEncoder().encode(JSON.stringify(command))
     await this.controlCharacteristic.writeValueWithResponse(payload)
-    this.emit("info", `Sent control command: ${command.op}`, command)
+    this.emit(
+      "info",
+      `Sent control command: ${command.op}`,
+      redactControlCommand(command)
+    )
   }
 
   async writeDataFrame(
@@ -302,6 +314,17 @@ export class BleTransferBrowserClient {
       detail,
     })
   }
+}
+
+function redactControlCommand(command: ControlCommand): ControlCommand {
+  if ("pair_secret" in command || "secret" in command) {
+    return {
+      ...command,
+      ...("pair_secret" in command ? { pair_secret: "[REDACTED]" } : {}),
+      ...("secret" in command ? { secret: "[REDACTED]" } : {}),
+    }
+  }
+  return command
 }
 
 function dataViewToArrayBuffer(value: DataView): ArrayBuffer {
