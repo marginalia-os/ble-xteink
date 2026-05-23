@@ -198,7 +198,11 @@ export class BleTransferBrowserClient {
 
     const payload = new TextEncoder().encode(JSON.stringify(command))
     await this.controlCharacteristic.writeValueWithResponse(payload)
-    this.emit("info", `Sent control command: ${command.op}`, command)
+    this.emit(
+      "info",
+      `Sent control command: ${command.op}`,
+      redactControlCommand(command)
+    )
   }
 
   async writeDataFrame(
@@ -310,6 +314,17 @@ export class BleTransferBrowserClient {
       detail,
     })
   }
+}
+
+function redactControlCommand(command: ControlCommand): ControlCommand {
+  if ("pair_secret" in command || "secret" in command) {
+    return {
+      ...command,
+      ...("pair_secret" in command ? { pair_secret: "[REDACTED]" } : {}),
+      ...("secret" in command ? { secret: "[REDACTED]" } : {}),
+    }
+  }
+  return command
 }
 
 function dataViewToArrayBuffer(value: DataView): ArrayBuffer {

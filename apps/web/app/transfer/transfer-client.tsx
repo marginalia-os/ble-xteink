@@ -1478,14 +1478,14 @@ function browserUploadKindsForStatus(
   status: TransferStatus | null
 ): BrowserUploadKind[] {
   const advertised = status?.upload_kinds
-  if (!advertised?.length) return [...BROWSER_UPLOAD_KINDS]
+  if (advertised === undefined) return [...BROWSER_UPLOAD_KINDS]
   return advertised.filter(isBrowserUploadKind)
 }
 
 function downloadKindsForStatus(status: TransferStatus | null): DownloadKind[] {
-  return status?.download_kinds?.length
-    ? status.download_kinds
-    : ["crash_report", "package_state"]
+  return status?.download_kinds === undefined
+    ? ["crash_report", "package_state"]
+    : status.download_kinds
 }
 
 function usesDeferredPairing(status: TransferStatus | null): boolean {
